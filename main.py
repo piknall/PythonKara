@@ -184,8 +184,8 @@ while True:
         display.draw(window, display_pos)
 
         # manipulator.logic(events)
-        execution_control.logic(events, execution_control_position)
-        execution_control.blit_if_necessary(window, execution_control_position)
+        execution_control._logic(events, execution_control_position)
+        execution_control._blit_if_necessary(window, execution_control_position)
 
         pygame.display.update()
         # print(display.get_field_coordinate_at_position(np.array(pygame.mouse.get_pos()) - display_pos))

@@ -8,6 +8,278 @@ import numpy as np
 import pygame
 
 
+class PositionHint:
+    RIGHT = "right_border"
+    LEFT = "right_border"
+    TOP = "right_border"
+    BOTTOM = "right_border"
+
+    def __init__(self,
+                 direction: str,
+                 position_node: int | GuiElement | typing.Callable,
+                 offset: int = 0,
+                 percentage: float = 1.0):
+        self.direction = direction
+        self.position_node = position_node
+        self.offset = offset
+        self.percentage = percentage
+
+    def get_position(self) -> int:
+        if type(self.position_node) is int:
+            referenced_position = self.position_node
+
+        elif isinstance(self.position_node, GuiElement):
+            if self.direction == self.LEFT:
+                referenced_position = self.position_node.get_left_position()
+            elif self.direction == self.RIGHT:
+                referenced_position = self.position_node.get_right_position()
+            elif self.direction == self.TOP:
+                referenced_position = self.position_node.get_top_position()
+            elif self.direction == self.BOTTOM:
+                referenced_position = self.position_node.get_bottom_position()
+            else:
+                raise ValueError(f"invalid position node: {self.position_node}")
+
+        elif callable(self.position_node):
+            referenced_position = self.position_node()
+
+        else:
+            raise ValueError(f"invalid position node: {self.position_node}")
+
+        return int(referenced_position * self.percentage + self.offset)
+
+
+class GuiElement:
+    def __init__(self,
+                 left_position: int | PositionHint | None,
+                 right_position: int | PositionHint | None,
+                 top_position: int | PositionHint | None,
+                 bottom_position: int | PositionHint | None,
+                 width: int | PositionHint | None,
+                 height: int | PositionHint | None
+                 ):
+        self._left_position_node = left_position
+        self._right_position_node = right_position
+        self._top_position_node = top_position
+        self._bottom_position_node = bottom_position
+        self._width_node = width
+        self._height_node = height
+
+        self.check_position_arguments()
+
+        self._position: tuple | None = None
+        self._size: tuple | None = None
+
+    @property
+    def position(self):
+        return self._position
+
+    @property
+    def size(self):
+        return self._size
+
+    @property
+    def position_attr_dict(self):
+        return {
+            "left_position": self._left_position_node,
+            "right_position": self._right_position_node,
+            "top_position": self._top_position_node,
+            "bottom_position": self._bottom_position_node,
+            "width_node": self._width_node,
+            "height_node": self._height_node,
+        }
+
+    def check_position_arguments(self) -> None:
+        """
+        check all given position and size nodes for different interpretations and recursive references
+        """
+        if sum((self._left_position_node is not None,
+                self._right_position_node is not None,
+                self._width_node is not None)) not in (1, 2):
+            raise ValueError(f"position nodes {self._left_position_node=}, {self._right_position_node=}, "
+                             f"{self._width_node=} can not be resolved")
+
+        if sum((self._top_position_node is not None,
+                self._bottom_position_node is not None,
+                self._height_node is not None)) not in (1, 2):
+            raise ValueError(f"position nodes {self._top_position_node=}, {self._bottom_position_node=}, "
+                             f"{self._height_node=} can not be resolved")
+
+        recursion_check = self._check_gui_element_recursion(self, self)
+
+        if recursion_check is not None:
+            error_message = ' -> '.join(
+                [
+                    str(element) if isinstance(element, GuiElement) else f'{element[0]} at attr {element[1]}'
+                    for element in recursion_check
+                ]
+            )
+
+            raise ValueError(f"position dependencies can not be resolved; faulty recursion path:\n{error_message}")
+
+    def _check_gui_element_recursion(self,
+                                     gui_element: GuiElement,
+                                     forbidden_gui_element: GuiElement) \
+            -> list[tuple[GuiElement, str] | GuiElement] | None:
+
+        for key, value in gui_element.position_attr_dict.items():
+            if isinstance(value, PositionHint) and isinstance(value.position_node, GuiElement):
+                if value.position_node is forbidden_gui_element:
+                    return [(gui_element, key), forbidden_gui_element]
+
+                if ((recursion_check := self._check_gui_element_recursion(value.position_node, forbidden_gui_element))
+                        is not None):
+                    return [(gui_element, key)] + recursion_check
+
+        return None
+
+    def terminate_position(self) -> None:
+        """
+        calculate the GuiElement position based on the given nodes, elements with fixed width have to specify size prior
+        to call
+        """
+        top_terminated_position = self._top_position_node.get_position() \
+            if isinstance(self._top_position_node, PositionHint) else self._top_position_node
+
+        bottom_terminated_position = self._bottom_position_node.get_position() \
+            if isinstance(self._bottom_position_node, PositionHint) else self._bottom_position_node
+
+        left_terminated_position = self._left_position_node.get_position() \
+            if isinstance(self._left_position_node, PositionHint) else self._left_position_node
+
+        right_terminated_position = self._right_position_node.get_position() \
+            if isinstance(self._right_position_node, PositionHint) else self._right_position_node
+
+        terminated_width = self._width_node.get_position() \
+            if isinstance(self._width_node, PositionHint) else self._width_node
+
+        terminated_height = self._height_node.get_position() \
+            if isinstance(self._height_node, PositionHint) else self._height_node
+
+        if terminated_width is None:
+            if not self._size:
+                raise ValueError("width has to be specified prior to calling this method or specified as node")
+            terminated_width = self._size[0]
+
+        if terminated_height is None:
+            if not self._size:
+                raise ValueError("height has to be specified prior to calling this method or specified as node")
+            terminated_height = self._size[1]
+
+        # horizontal position and width calculation:
+        if right_terminated_position is None:
+            new_x_position = left_terminated_position
+            new_width = terminated_width
+        elif left_terminated_position is None:
+            new_x_position = right_terminated_position - terminated_width
+            new_width = terminated_width
+        else:
+            new_x_position = left_terminated_position
+            new_width = right_terminated_position - left_terminated_position
+
+        # vertical position and width calculation:
+        if bottom_terminated_position is None:
+            new_y_position = top_terminated_position
+            new_height = terminated_height
+        elif top_terminated_position is None:
+            new_y_position = bottom_terminated_position - terminated_height
+            new_height = terminated_height
+        else:
+            new_y_position = top_terminated_position
+            new_height = bottom_terminated_position - top_terminated_position
+
+        self._position = (new_x_position, new_y_position)
+        self.set_size((new_width, new_height))
+
+    def get_left_position(self) -> int:
+        """
+        get x position of the GuiElements left side
+        :return: x position
+        """
+        return self._position[0]
+
+    def get_top_position(self) -> int:
+        """
+        get y position of the GuiElements top side
+        :return: y position
+        """
+        return self._position[1]
+
+    def get_right_position(self) -> int:
+        """
+        get x position of the GuiElements right side
+        :return: x position + x size
+        """
+        return self._position[0] + self._size[0]
+
+    def get_bottom_position(self) -> int:
+        """
+        get y position of the GuiElements bottom side
+        :return: y position + y size
+        """
+        return self._position[1] + self._size[1]
+
+    def set_height(self, new_height: int):
+        """
+        method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
+        new method  or this parent method has to be called
+        :param new_height: new height to be set
+        """
+        self._size = (self.size[0], new_height)
+
+    def set_width(self, new_width: int):
+        """
+        method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
+        new method or this parent method has to be called
+        :param new_width: new height to be set
+        """
+        self._size = (new_width, self._size[1])
+
+    def set_size(self, new_size: tuple[int, int]):
+        """
+        method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
+        new method or this parent method has to be called
+        :param new_size:
+        :return:
+        """
+        self._size = new_size
+
+    # methods to be defined:
+    def blit(self, surface: pygame.Surface, force_blit: bool = False) -> None:
+        pass
+
+    def handel_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]):
+        pass
+
+
+class GuiManager:
+    def __init__(self,
+                 surface: pygame.Surface,
+                 position: tuple[int, int] = (0, 0)):
+        self.surface = surface
+        self.position = position
+
+        self.gui_elements: list[GuiElement] = []
+
+    def add_element(self, gui_element: GuiElement):
+        if not isinstance(gui_element, GuiElement):
+            raise ValueError(f"gui_element argument has to be an instance of GuyElement not {type(gui_element)}")
+
+        self.gui_elements.append(gui_element)
+
+    def arrange_elements(self) -> None:
+        for gui_element in self.gui_elements:
+            gui_element.terminate_position()
+
+    def handle_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]) -> None:
+        for gui_element in self.gui_elements:
+            gui_element.handel_events(events)
+
+    def blit_elements(self, force_blit: bool = False):
+        for gui_element in self.gui_elements:
+            gui_element.blit(self.surface, force_blit)
+
+
 class ButtonBackgroundAppearance:
     def __init__(self,
                  size_percentage: float = 1,
@@ -252,7 +524,6 @@ class ButtonArrangement:
         return surface
 
     def _get_center_at_index(self, index: int) -> tuple[int, int]:
-        # print(self.padding_size, self.button_size, self.combined_button_size, index, self.shape)
         return (self.border_padding_size + self.button_size // 2 + self.combined_button_size * (index % self.shape[0]),
                 self.border_padding_size + self.button_size // 2 + self.combined_button_size * (index // self.shape[0]))
 
@@ -386,8 +657,12 @@ class ButtonArrangement:
         return self.surface.get_size()
 
 
-class ButtonBox:
+class ButtonBox(GuiElement):
     def __init__(self,
+                 left_position: int | PositionHint | None,
+                 right_position: int | PositionHint | None,
+                 top_position: int | PositionHint | None,
+                 bottom_position: int | PositionHint | None,
                  button_layout_size: tuple[int, int],
                  button_size: int,
                  button_padding_size: int = 10,
@@ -408,6 +683,15 @@ class ButtonBox:
                                                    over will be processed anyway, meaning that their commands and
                                                    pointers will be called
         """
+        super().__init__(
+            left_position,
+            right_position,
+            top_position,
+            bottom_position,
+            None,
+            None,
+        )
+
         self.button_layout_size = button_layout_size
         self.button_size = button_size
         self.button_padding_size = button_padding_size
@@ -415,7 +699,7 @@ class ButtonBox:
             else math.ceil(button_padding_size / 2)
         self.selected_mode = selected_mode
         self.background_colour = background_colour
-        self.size = self._get_surface_size(self.button_layout_size)
+        self._size = self._get_surface_size(self.button_layout_size)
 
         self.all_buttons = []
         self.button_arrangements = {}
@@ -524,7 +808,7 @@ class ButtonBox:
         index = button_position[0] + button_position[1] * self.arrangement_shape[0]
         return index if index < len(self.current_button_arrangement.buttons) else None
 
-    def logic(self, events: list[pygame.Event, ...] | tuple[pygame.Event, ...], position: tuple):
+    def _logic(self, events: list[pygame.Event, ...] | tuple[pygame.Event, ...], position: tuple):
         """
         method to input the users mouse inputs in form of the associated pygame events
         :param events: list or tuple of events to be handled (MOUSEMOTION, MOUSEBUTTONDOWN and MOUSEBUTTONUP event types
@@ -580,7 +864,10 @@ class ButtonBox:
 
         self.updated_buttons = self.current_button_arrangement.terminate_surface()
 
-    def blit_if_necessary(self, surface: pygame.Surface, position: tuple[int, int], force_blit: bool = False):
+    def handel_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]):
+        self._logic(events, self.position)
+
+    def _blit_if_necessary(self, surface: pygame.Surface, position: tuple[int, int], force_blit: bool = False):
         """
         method to blit the ButtonBox at a given position and a given surface in an efficient way
         :param surface: surface to blit on
@@ -618,9 +905,18 @@ class ButtonBox:
         self.updated_buttons = False
         self.reload_surface = False
 
+    def blit(self, surface: pygame.Surface, force_blit: bool = False) -> None:
+        self._blit_if_necessary(surface,
+                                self.position,
+                                force_blit)
+
 
 class EmbeddedButtonBox(ButtonBox):
     def __init__(self,
+                 left_position: int | PositionHint | None,
+                 right_position: int | PositionHint | None,
+                 top_position: int | PositionHint | None,
+                 bottom_position: int | PositionHint | None,
                  outline_width: int,
                  button_layout_size: tuple[int, int],
                  button_size: int,
@@ -696,13 +992,19 @@ class EmbeddedButtonBox(ButtonBox):
         :param additional_right_padding: specify additional_padding in right direction (see additional_padding)
         :param top_offset: vertical offset to be added to the draw location specified in the blit_if_necessary method
         """
-        super().__init__(button_layout_size=button_layout_size,
-                         button_size=button_size,
-                         button_padding_size=button_padding_size,
-                         border_padding_size=border_padding_size,
-                         selected_mode=selected_mode,
-                         background_colour=background_colour,
-                         process_not_longer_touched_buttons=process_not_longer_touched_buttons)
+        super().__init__(
+            left_position=left_position,
+            right_position=right_position,
+            top_position=top_position,
+            bottom_position=bottom_position,
+            button_layout_size=button_layout_size,
+            button_size=button_size,
+            button_padding_size=button_padding_size,
+            border_padding_size=border_padding_size,
+            selected_mode=selected_mode,
+            background_colour=background_colour,
+            process_not_longer_touched_buttons=process_not_longer_touched_buttons
+        )
 
         # initialise outline parameters:
         self.outline_width = outline_width
@@ -823,13 +1125,16 @@ class EmbeddedButtonBox(ButtonBox):
         return (parent_size[0] + self.outline_width * 2 + self.left_padding + self.right_padding,
                 parent_size[1] + self.outline_width * 2 + self.top_padding + self.down_padding + self.top_offset)
 
-    def logic(self, events: list[pygame.Event, ...] | tuple[pygame.Event, ...], position: tuple):
+    def _logic(self, events: list[pygame.Event, ...] | tuple[pygame.Event, ...], position: tuple):
         """
         calls parents logic method with modified position
         :param events: events to be handled
         :param position: position of the EmbeddedButtonBox
         """
-        super().logic(events, self._get_position_with_outline_width(position))
+        super()._logic(events, self._get_position_with_outline_width(position))
+
+    def handel_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]):
+        self._logic(events, self.position)
 
     def _draw_additional_padding(self, surface: pygame.Surface,
                                  position: tuple[int, int],
@@ -881,7 +1186,7 @@ class EmbeddedButtonBox(ButtonBox):
                      tuple(heading_pos + pos for heading_pos, pos in zip(self.heading_position, position))
                      )
 
-    def blit_if_necessary(self, surface: pygame.Surface, position: tuple[int, int], force_blit: bool = False):
+    def _blit_if_necessary(self, surface: pygame.Surface, position: tuple[int, int], force_blit: bool = False):
         """
         overwrites ButtonBoxes method by adding additional padding, heading and outline
         :param surface: surface to blit on
@@ -894,7 +1199,7 @@ class EmbeddedButtonBox(ButtonBox):
 
         reload_surface = self.reload_surface
 
-        super().blit_if_necessary(surface, self._get_position_with_outline_width(position))
+        super()._blit_if_necessary(surface, self._get_position_with_outline_width(position))
 
         if reload_surface:
             parent_size = super().get_size()
@@ -913,131 +1218,7 @@ class EmbeddedButtonBox(ButtonBox):
         :param surface: surface to blit on
         :param position: position on the surface to blit at
         """
-        self.blit_if_necessary(surface, position, True)
-
-
-class PositionHint:
-    RIGHT = "right_border"
-    LEFT = "right_border"
-    TOP = "right_border"
-    BOTTOM = "right_border"
-
-    def __init__(self,
-                 direction: str,
-                 position_node: int | GuiElement | typing.Callable,
-                 offset: int = 0,
-                 percentage: float = 1.0):
-        self.direction = direction
-        self.position_node = position_node
-        self.offset = offset
-        self.percentage = percentage
-
-    def get_position(self) -> int:
-        if type(self.position_node) is int:
-            referenced_position = self.position_node
-
-        elif isinstance(self.position_node, GuiElement):
-            if self.direction == self.LEFT:
-                referenced_position = self.position_node.get_left()
-            elif self.direction == self.RIGHT:
-                referenced_position = self.position_node.get_right()
-            elif self.direction == self.TOP:
-                referenced_position = self.position_node.get_top()
-            elif self.direction == self.BOTTOM:
-                referenced_position = self.position_node.get_bottom()
-            else:
-                raise ValueError(f"invalid position node: {self.position_node}")
-
-        elif callable(self.position_node):
-            referenced_position = self.position_node()
-
-        else:
-            raise ValueError(f"invalid position node: {self.position_node}")
-
-        return int(referenced_position * self.percentage + self.offset)
-
-
-class GuiElement:
-    def __init__(self,
-                 left_position: int | PositionHint | None,
-                 right_position: int | PositionHint | None,
-                 top_position: int | PositionHint | None,
-                 bottom_position: int | PositionHint | None,
-                 width: int | PositionHint | None,
-                 height: int | PositionHint | None
-                 ):
-        self._left_position = left_position
-        self._right_position = right_position
-        self._top_position = top_position
-        self._bottom_position = bottom_position
-        self._width_node = width
-        self._height_node = height
-
-        self.check_position_arguments()
-
-        self._position = None
-        self._size = None
-
-    @property
-    def position_attr_dict(self):
-        return {
-            "left_position": self._left_position,
-            "right_position": self._right_position,
-            "top_position": self._top_position,
-            "bottom_position": self._bottom_position,
-            "width_node": self._width_node,
-            "height_node": self._height_node,
-                }
-
-    def check_position_arguments(self):
-        if sum((self._left_position is not None, self._right_position is not None, self._width_node is not None)) != 2:
-            raise ValueError(f"position nodes {self._left_position=}, {self._right_position=}, "
-                             f"{self._width_node=} can not be resolved")
-
-        if sum((self._top_position is not None, self._bottom_position is not None, self._height_node is not None)) != 2:
-            raise ValueError(f"position nodes {self._top_position=}, {self._bottom_position=}, "
-                             f"{self._height_node=} can not be resolved")
-
-        recursion_check = self._check_gui_element_recursion(self, self)
-        if recursion_check is not None:
-            raise ValueError(f"position dependencies can not be resolved; recursion path:\n"
-                             f"{' -> '.join([str(element) if isinstance(element, GuiElement) else f'{element[0]} at attr {element[1]}' for element in recursion_check])}")
-
-    def _check_gui_element_recursion(self,
-                                     gui_element: GuiElement,
-                                     forbidden_gui_element: GuiElement)\
-            -> list[tuple[GuiElement, str] | GuiElement] | None:
-
-        for key, value in gui_element.position_attr_dict.items():
-            if isinstance(value, PositionHint) and isinstance(value.position_node, GuiElement):
-                if value.position_node is forbidden_gui_element:
-                    return [(gui_element, key), forbidden_gui_element]
-
-                recursion_check = self._check_gui_element_recursion(value.position_node, forbidden_gui_element)
-                if recursion_check is not None:
-                    return [(gui_element, key)] + recursion_check
-
-        return None
-
-    def terminate_position(self):
-        pass
-
-    def get_left(self):
-        return self._position[0]
-
-    def get_top(self):
-        return self._position[1]
-
-    def get_right(self):
-        return self._position[0] + self._size[0]
-
-    def get_bottom(self):
-        return self._position[1] + self._size[1]
-
-
-class GuiManager:
-    def __init__(self):
-        pass
+        self._blit_if_necessary(surface, position, True)
 
 
 if __name__ == "__main__":
@@ -1071,7 +1252,11 @@ if __name__ == "__main__":
     TUERKIS = (64, 214, 218)
     LIGHT_GRAY = (200, 200, 200)
     WHITE = (255, 255, 255)
-    test_box = EmbeddedButtonBox(10,
+    test_box = EmbeddedButtonBox(50,
+                                 None,
+                                 50,
+                                 None,
+                                 10,
                                  (4, 2),
                                  70,
                                  button_padding_size=20,
@@ -1095,6 +1280,10 @@ if __name__ == "__main__":
                                     (test_button,) * 4,
                                     arrangement_pointers=("first",) + (None,) * 3)
 
+    manager = GuiManager(window)
+    manager.add_element(test_box)
+    manager.arrange_elements()
+
     clock = pygame.time.Clock()
 
     timings = []
@@ -1108,8 +1297,10 @@ if __name__ == "__main__":
                 exit()
 
         start = time.perf_counter()
-        test_box.logic(events, (100, 100))
-        test_box.blit_if_necessary(window, (100, 100))
+        # test_box._logic(events, (100, 100))
+        # test_box._blit_if_necessary(window, (100, 100))
+        manager.handle_events(events)
+        manager.blit_elements()
         end = time.perf_counter()
         timings.append((end - start) * 60)
 
