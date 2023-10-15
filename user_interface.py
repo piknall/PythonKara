@@ -1001,9 +1001,7 @@ class GuiElement:
         recursion_check = self._check_gui_element_recursion(self, self)
         if recursion_check is not None:
             raise ValueError(f"position dependencies can not be resolved; recursion path:\n"
-                             f"{' -> '.join([str(element) if isinstance(element, GuiElement) 
-                                             else f'{element[0]} at attr {element[1]}' 
-                                             for element in recursion_check])}")
+                             f"{' -> '.join([str(element) if isinstance(element, GuiElement) else f'{element[0]} at attr {element[1]}' for element in recursion_check])}")
 
     def _check_gui_element_recursion(self,
                                      gui_element: GuiElement,
