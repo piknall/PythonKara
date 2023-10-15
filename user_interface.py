@@ -916,6 +916,132 @@ class EmbeddedButtonBox(ButtonBox):
         self.blit_if_necessary(surface, position, True)
 
 
+class PositionHint:
+    RIGHT = "right_border"
+    LEFT = "right_border"
+    TOP = "right_border"
+    BOTTOM = "right_border"
+
+    def __init__(self,
+                 direction: str,
+                 position_node: int | GuiElement | typing.Callable,
+                 offset: int = 0,
+                 percentage: float = 1.0):
+        self.direction = direction
+        self.position_node = position_node
+        self.offset = offset
+        self.percentage = percentage
+
+    def get_position(self) -> int:
+        if type(self.position_node) is int:
+            referenced_position = self.position_node
+
+        elif isinstance(self.position_node, GuiElement):
+            if self.direction == self.LEFT:
+                referenced_position = self.position_node.get_left()
+            elif self.direction == self.RIGHT:
+                referenced_position = self.position_node.get_right()
+            elif self.direction == self.TOP:
+                referenced_position = self.position_node.get_top()
+            elif self.direction == self.BOTTOM:
+                referenced_position = self.position_node.get_bottom()
+            else:
+                raise ValueError(f"invalid position node: {self.position_node}")
+
+        elif callable(self.position_node):
+            referenced_position = self.position_node()
+
+        else:
+            raise ValueError(f"invalid position node: {self.position_node}")
+
+        return int(referenced_position * self.percentage + self.offset)
+
+
+class GuiElement:
+    def __init__(self,
+                 left_position: int | PositionHint | None,
+                 right_position: int | PositionHint | None,
+                 top_position: int | PositionHint | None,
+                 bottom_position: int | PositionHint | None,
+                 width: int | PositionHint | None,
+                 height: int | PositionHint | None
+                 ):
+        self._left_position = left_position
+        self._right_position = right_position
+        self._top_position = top_position
+        self._bottom_position = bottom_position
+        self._width_node = width
+        self._height_node = height
+
+        self.check_position_arguments()
+
+        self._position = None
+        self._size = None
+
+    @property
+    def position_attr_dict(self):
+        return {
+            "left_position": self._left_position,
+            "right_position": self._right_position,
+            "top_position": self._top_position,
+            "bottom_position": self._bottom_position,
+            "width_node": self._width_node,
+            "height_node": self._height_node,
+                }
+
+    def check_position_arguments(self):
+        if sum((self._left_position is not None, self._right_position is not None, self._width_node is not None)) != 2:
+            raise ValueError(f"position nodes {self._left_position=}, {self._right_position=}, "
+                             f"{self._width_node=} can not be resolved")
+
+        if sum((self._top_position is not None, self._bottom_position is not None, self._height_node is not None)) != 2:
+            raise ValueError(f"position nodes {self._top_position=}, {self._bottom_position=}, "
+                             f"{self._height_node=} can not be resolved")
+
+        recursion_check = self._check_gui_element_recursion(self, self)
+        if recursion_check is not None:
+            raise ValueError(f"position dependencies can not be resolved; recursion path:\n"
+                             f"{' -> '.join([str(element) if isinstance(element, GuiElement) 
+                                             else f'{element[0]} at attr {element[1]}' 
+                                             for element in recursion_check])}")
+
+    def _check_gui_element_recursion(self,
+                                     gui_element: GuiElement,
+                                     forbidden_gui_element: GuiElement)\
+            -> list[tuple[GuiElement, str] | GuiElement] | None:
+
+        for key, value in gui_element.position_attr_dict.items():
+            if isinstance(value, PositionHint) and isinstance(value.position_node, GuiElement):
+                if value.position_node is forbidden_gui_element:
+                    return [(gui_element, key), forbidden_gui_element]
+
+                recursion_check = self._check_gui_element_recursion(value.position_node, forbidden_gui_element)
+                if recursion_check is not None:
+                    return [(gui_element, key)] + recursion_check
+
+        return None
+
+    def terminate_position(self):
+        pass
+
+    def get_left(self):
+        return self._position[0]
+
+    def get_top(self):
+        return self._position[1]
+
+    def get_right(self):
+        return self._position[0] + self._size[0]
+
+    def get_bottom(self):
+        return self._position[1] + self._size[1]
+
+
+class GuiManager:
+    def __init__(self):
+        pass
+
+
 if __name__ == "__main__":
     # test code:
     import matplotlib.pyplot as plt
