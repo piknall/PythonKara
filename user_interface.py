@@ -15,16 +15,27 @@ class PositionHint:
     BOTTOM = "right_border"
 
     def __init__(self,
-                 direction: str,
                  position_node: int | GuiElement | typing.Callable,
+                 direction: str | None = None,
                  offset: int = 0,
                  percentage: float = 1.0):
+        """
+        class to get a dynamic position axis that depend on another GuiElement or a callable; used in GuiElement
+        :param position_node: axis of a position as int, callable returning an int or GuiElement
+        :param direction: direction constant of which side of the specified GuiElement to refer to
+        :param offset: value to be added to the determined position
+        :param percentage: factor to multiply the determined position with
+        """
         self.direction = direction
         self.position_node = position_node
         self.offset = offset
         self.percentage = percentage
 
     def get_position(self) -> int:
+        """
+        get position based on the specified node and other attributes
+        :return: int representing one axis of a position
+        """
         if type(self.position_node) is int:
             referenced_position = self.position_node
 
@@ -46,7 +57,7 @@ class PositionHint:
         else:
             raise ValueError(f"invalid position node: {self.position_node}")
 
-        return int(referenced_position * self.percentage + self.offset)
+        return round(referenced_position * self.percentage + self.offset)
 
 
 class GuiElement:
@@ -58,6 +69,25 @@ class GuiElement:
                  width: int | PositionHint | None,
                  height: int | PositionHint | None
                  ):
+        """
+        base class of all GuiElements that can be used with a GuiManager
+        :param left_position: x-position of the GuiElements left side, if set to None this value will depend on the
+                              right_position attribute and width of the GuiElement, which might be specified by the
+                              width argument
+        :param right_position: x-position of the GuiElements right side, if set to None this value will depend on the
+                              left_position attribute and width of the GuiElement, which might be specified by the
+                              width argument
+        :param top_position: y-position of the GuiElements top side, if set to None this value will depend on the
+                              bottom_position attribute and height of the GuiElement, which might be specified by the
+                              width argument
+        :param bottom_position: y-position of the GuiElements bottom side, if set to None this value will depend on the
+                              top_position attribute and height of the GuiElement, which might be specified by the
+                              width argument
+        :param width: width of the GuiElement, if set to None this value will depend on the left_ and right_position
+                      arguments. Note that this argument has to be set to None for not-dynamic sized GuiElements
+        :param height: height of the GuiElement, if set to None this value will depend on the top_ and bottom_position
+                       specifiers. Note that this argument has to be set to None for not-dynamic sized GuiElements
+        """
         self._left_position_node = left_position
         self._right_position_node = right_position
         self._top_position_node = top_position
@@ -71,15 +101,27 @@ class GuiElement:
         self._size: tuple | None = None
 
     @property
-    def position(self):
+    def position(self) -> tuple[int, int]:
+        """
+        read only property
+        :return: position of the GuiElement on its GuiManager
+        """
         return self._position
 
     @property
-    def size(self):
+    def size(self) -> tuple[int, int]:
+        """
+        read only property
+        :return: size of the GuiElement
+        """
         return self._size
 
     @property
-    def position_attr_dict(self):
+    def _position_attr_dict(self) -> dict[str, int | PositionHint | None]:
+        """
+        method to get a dictionary representation of all the nodes position and size nodes
+        :return: dictionary with strings as keys representing the names of all nodes and the nodes themselves as values
+        """
         return {
             "left_position": self._left_position_node,
             "right_position": self._right_position_node,
@@ -121,8 +163,16 @@ class GuiElement:
                                      gui_element: GuiElement,
                                      forbidden_gui_element: GuiElement) \
             -> list[tuple[GuiElement, str] | GuiElement] | None:
+        """
+        method to check a given GuiElement for recursion in its position and size resolution process
+        :param gui_element: GuiElement to be checked
+        :param forbidden_gui_element: GuiElement that should not occur in the resolution process (normally equivalent
+                                      to the specified gui_element argument)
+        :return: None if no problem occurred, else a list of tuples and ending with a GuiElement representing the path
+                 of resolution that failed
+        """
 
-        for key, value in gui_element.position_attr_dict.items():
+        for key, value in gui_element._position_attr_dict.items():
             if isinstance(value, PositionHint) and isinstance(value.position_node, GuiElement):
                 if value.position_node is forbidden_gui_element:
                     return [(gui_element, key), forbidden_gui_element]
@@ -219,7 +269,7 @@ class GuiElement:
         """
         return self._position[1] + self._size[1]
 
-    def set_height(self, new_height: int):
+    def set_height(self, new_height: int) -> None:
         """
         method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
         new method  or this parent method has to be called
@@ -227,7 +277,7 @@ class GuiElement:
         """
         self._size = (self.size[0], new_height)
 
-    def set_width(self, new_width: int):
+    def set_width(self, new_width: int) -> None:
         """
         method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
         new method or this parent method has to be called
@@ -235,20 +285,28 @@ class GuiElement:
         """
         self._size = (new_width, self._size[1])
 
-    def set_size(self, new_size: tuple[int, int]):
+    def set_size(self, new_size: tuple[int, int]) -> None:
         """
         method to be overwritten to enable resizing functionality, the self._size attribute has to be set within the
         new method or this parent method has to be called
         :param new_size:
-        :return:
         """
         self._size = new_size
 
-    # methods to be defined:
+    # methods to be overwritten:
     def blit(self, surface: pygame.Surface, force_blit: bool = False) -> None:
+        """
+        method to be overwritten by child class to implement blitting
+        :param surface: surface to be blitted on
+        :param force_blit: enables optional blitting functionality if implemented
+        """
         pass
 
-    def handel_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]):
+    def handel_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]) -> None:
+        """
+        method to be overwritten by child class to implement event handeling
+        :param events: pygame events relevant to the GuiElement (should be filtered anyway)
+        """
         pass
 
 
@@ -256,26 +314,46 @@ class GuiManager:
     def __init__(self,
                  surface: pygame.Surface,
                  position: tuple[int, int] = (0, 0)):
+        """
+        class to manage multiple GuiElements positions and logic
+        :param surface: surface to blit GuiElements on
+        :param position: postion of the GuiElement on the specified surface
+        """
         self.surface = surface
         self.position = position
 
         self.gui_elements: list[GuiElement] = []
 
-    def add_element(self, gui_element: GuiElement):
+    def add_element(self, gui_element: GuiElement) -> None:
+        """
+        add a GuiElement to the GuiManager
+        :param gui_element: GuiElement to be added
+        """
         if not isinstance(gui_element, GuiElement):
             raise ValueError(f"gui_element argument has to be an instance of GuyElement not {type(gui_element)}")
 
         self.gui_elements.append(gui_element)
 
     def arrange_elements(self) -> None:
+        """
+        calculate each GuiElements position and size based on their absolute positions and dependencies
+        """
         for gui_element in self.gui_elements:
             gui_element.terminate_position()
 
     def handle_events(self, events: list[pygame.Event] | tuple[pygame.Event, ...]) -> None:
+        """
+        method to handle all given pygame.Events to the GuiElements that need them
+        :param events: pygame.Events to be handled
+        """
         for gui_element in self.gui_elements:
             gui_element.handel_events(events)
 
-    def blit_elements(self, force_blit: bool = False):
+    def blit_elements(self, force_blit: bool = False) -> None:
+        """
+        blitting all GuiElements if necessary
+        :param force_blit: blit all GuiElements regardless of condition
+        """
         for gui_element in self.gui_elements:
             gui_element.blit(self.surface, force_blit)
 
