@@ -1366,9 +1366,9 @@ if __name__ == "__main__":
 
     timings = []
     while True:
-        events = pygame.event.get()
-        for event in events:
-            if event.type == pygame.QUIT:
+        pygame_events = pygame.event.get()
+        for pygame_event in pygame_events:
+            if pygame_event.type == pygame.QUIT:
                 plt.plot(range(len(timings)), timings)
                 plt.title("frametime x60:")
                 plt.show()
@@ -1377,7 +1377,7 @@ if __name__ == "__main__":
         start = time.perf_counter()
         # test_box._logic(events, (100, 100))
         # test_box._blit_if_necessary(window, (100, 100))
-        manager.handle_events(events)
+        manager.handle_events(pygame_events)
         manager.blit_elements()
         end = time.perf_counter()
         timings.append((end - start) * 60)
