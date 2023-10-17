@@ -355,6 +355,7 @@ class ZoomLayer:
         self.surface_offset = new_surface_offset
 
 
+# TODO: let WorldDisplay inherit from user_interface.GuiObject
 class WorldDisplay:
     def __init__(self,
                  world: World,

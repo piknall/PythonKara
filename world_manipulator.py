@@ -9,6 +9,7 @@ import world
 import numpy as np
 
 
+# TODO: implement WorldManipulator
 class WorldManipulator:
     KARA = "kara_mode"
     COLOUR = "colour_mode"

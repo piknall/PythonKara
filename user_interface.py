@@ -351,7 +351,7 @@ class GuiManager:
 
     def blit_elements(self, force_blit: bool = False) -> None:
         """
-        blitting all GuiElements if necessary
+        blit all GuiElements if necessary
         :param force_blit: blit all GuiElements regardless of condition
         """
         for gui_element in self.gui_elements:
