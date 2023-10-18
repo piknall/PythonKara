@@ -737,17 +737,17 @@ class ButtonArrangement:
 
 class ButtonBox(GuiElement):
     def __init__(self,
-                 left_position: int | PositionHint | None,
-                 right_position: int | PositionHint | None,
-                 top_position: int | PositionHint | None,
-                 bottom_position: int | PositionHint | None,
                  button_layout_size: tuple[int, int],
                  button_size: int,
                  button_padding_size: int = 10,
                  border_padding_size: int = None,
                  selected_mode: bool = False,
                  background_colour: tuple[int, ...] | np.ndarray = (255, 255, 255),
-                 process_not_longer_touched_buttons: bool = False
+                 process_not_longer_touched_buttons: bool = False,
+                 left_position: int | PositionHint | None = None,
+                 right_position: int | PositionHint | None = None,
+                 top_position: int | PositionHint | None = None,
+                 bottom_position: int | PositionHint | None = None,
                  ):
         """
         container for pressable buttons
@@ -991,10 +991,6 @@ class ButtonBox(GuiElement):
 
 class EmbeddedButtonBox(ButtonBox):
     def __init__(self,
-                 left_position: int | PositionHint | None,
-                 right_position: int | PositionHint | None,
-                 top_position: int | PositionHint | None,
-                 bottom_position: int | PositionHint | None,
                  outline_width: int,
                  button_layout_size: tuple[int, int],
                  button_size: int,
@@ -1023,7 +1019,11 @@ class EmbeddedButtonBox(ButtonBox):
                  additional_bottom_padding: int = -1,
                  additional_left_padding: int = -1,
                  additional_right_padding: int = -1,
-                 top_offset: int = 0
+                 top_offset: int = 0,
+                 left_position: int | PositionHint | None = None,
+                 right_position: int | PositionHint | None = None,
+                 top_position: int | PositionHint | None = None,
+                 bottom_position: int | PositionHint | None = None,
                  ):
         """
         child class of ButtonBox, adding an outline and optional title to the blitted ButtonBox

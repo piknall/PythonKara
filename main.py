@@ -3,6 +3,7 @@ import time
 import numpy as np
 import pygame
 
+import user_interface
 import world
 import sub_process
 import world_display
@@ -85,7 +86,8 @@ while True:
     sub_process_control = sub_process.SubProcessControl(test_world, 0.00)
     sub_process_control.start_subprocess(complex_code)
 
-    execution_control = ui.EmbeddedButtonBox(5, (2, 1), 70, 10)
+    execution_control = ui.EmbeddedButtonBox(5, (2, 1), 70, 10,
+                                             left_position=1270, top_position=970)
 
     hovered_appearance = ui.ButtonAppearance(background_appearance=ui.ButtonBackgroundAppearance(line_width=3,
                                                                                                  size_percentage=1.05,
@@ -135,11 +137,14 @@ while True:
                                              ("executing", "not executing"))
 
     execution_control.set_current_arrangement("executing")
-    execution_control_position = (1270, 970)
+
+    manager = user_interface.GuiManager(window, (0, 0))
+    manager.add_element(execution_control)
+    manager.arrange_elements()
 
     print(display.display_size, display.current_zoom_layer.display_field_size, display.current_zoom_layer.field_size)
 
-    manipulator = world_manipulator.WorldManipulator(test_world, display, display_pos)
+    # manipulator = world_manipulator.WorldManipulator(test_world, display, display_pos)
 
     # pygame.draw.rect(window, (255, 0, 0), (97, 97) + tuple(map(lambda x: x + 6, display.display_size)), 3)
 
@@ -183,9 +188,10 @@ while True:
         # window.blit(display.current_zoom_layer.surface, (950, 300))
         display.draw(window, display_pos)
 
-        # manipulator.logic(events)
-        execution_control._logic(events, execution_control_position)
-        execution_control._blit_if_necessary(window, execution_control_position)
+        # execution_control._logic(events, execution_control_position)
+        # execution_control._blit_if_necessary(window, execution_control_position)
+        manager.handle_events(events)
+        manager.blit_elements()
 
         pygame.display.update()
         # print(display.get_field_coordinate_at_position(np.array(pygame.mouse.get_pos()) - display_pos))

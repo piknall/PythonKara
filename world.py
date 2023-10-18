@@ -9,7 +9,46 @@ from dataclasses import dataclass
 import numpy as np
 
 
-class World:
+@dataclass
+class ColourModificationPoint:
+    """
+    class to document changes made to a worlds colour_layer
+    """
+    position: tuple[int, int] | np.ndarray[int, int]
+    size: tuple[int, int] | np.ndarray[int, int]
+    colour_matrix: np.ndarray[np.ndarray[np.ndarray[int, ...], ...], ...]
+
+
+@dataclass
+class ObjectModificationPoint:
+    """
+    class to document changes made to a worlds colour_layer
+    """
+    position: tuple[int, int] | np.ndarray[int, int]
+    size: tuple[int, int] | np.ndarray[int, int]
+    leaf_matrix: np.ndarray[np.ndarray[int, ...], ...]
+    object_matrix: np.ndarray[np.ndarray[int, ...], ...]
+
+
+class ModificationGroup:
+    def __init__(self, reproducible: bool = True):
+        """
+        class to bundle multiple ModificationPoints together
+        :param reproducible: determines if the changes documented in the ModificationGroups ModificationPoints can be
+                             redone if undone before
+        """
+        self.modification_points = []
+        self.reproducible = reproducible
+
+    def append_point(self, modification_point: ColourModificationPoint | ObjectModificationPoint) -> None:
+        """
+        add ModificationPoint to ModificationGroup
+        :param modification_point: ModificationPoint to be added
+        """
+        self.modification_points.append(modification_point)
+
+
+class BaseWorld:
     def __init__(self):
         """
         class to store and organise a worlds content and properties in a process sharable based format
@@ -19,7 +58,7 @@ class World:
             self.kara_position, self.raw_kara_rotation, self.kara_rotation, self.world_folder_path = (None,) * 13
         self.kara_having_position = False
 
-    def create_arrays(self, size: np.ndarray,
+    def create_arrays(self, size: tuple[int, int],
                       raw_object_layer: multiprocessing.Array = None,
                       raw_leaf_layer: multiprocessing.Array = None,
                       raw_colour_layer: multiprocessing.Array = None,
@@ -260,6 +299,167 @@ class World:
         self.kara_position[:] = copy.kara_position
         self.kara_rotation[0] = copy.kara_rotation
         self.kara_having_position = copy.kara_having_position
+
+
+class World(BaseWorld):
+    COLOUR_MODIFICATION = "colour_modification"
+    OBJECT_MODIFICATION = "object_modification"
+
+    def __init__(self):
+        """
+        child class of BaseWorld enabling logging functionality
+        """
+        super().__init__()
+
+        self.undo_depth = 0
+        self.undo_modification_groups = []
+        self.redo_modification_groups = []
+
+    def _create_modification_point(self,
+                                   position: tuple[int, int] | np.ndarray[int, int],
+                                   size: tuple[int, int] | np.ndarray[int, int],
+                                   modification_type: str) -> ColourModificationPoint | ObjectModificationPoint:
+        """
+        private method to create a Colour or ObjectModificationPoint of a given size at a given position of the world
+        :param position: left up corner of the area in the world to be stored
+        :param size: tuple of s and y size of the area in the world to be stored
+        :param modification_type: modification type konstant indicating if the worlds colour_layer (COLOUR_MODIFICATION)
+                                  or the worlds leaf or object_layer (OBJECT_MODIFICATION) is going to be modified
+        :return: ModificationPoint object
+        """
+        if modification_type == self.COLOUR_MODIFICATION:
+            return ColourModificationPoint(
+                position=position,
+                size=size,
+                colour_matrix=self.colour_layer[position[0]:position[0] + size[0],
+                                                position[1]:position[1] + size[1]].copy()
+            )
+
+        if modification_type == self.OBJECT_MODIFICATION:
+            return ObjectModificationPoint(
+                position=position,
+                size=size,
+                leaf_matrix=self.leaf_layer[position[0]:position[0] + size[0],
+                                            position[1]:position[1] + size[1]].copy(),
+                object_matrix=self.object_layer[position[0]:position[0] + size[0],
+                                                position[1]:position[1] + size[1]].copy()
+            )
+
+        raise ValueError(f"the given modification_type argument: '{modification_type}' is invalid")
+
+    def add_modification_point(self,
+                               position: tuple[int, int] | np.ndarray[int, int],
+                               size: tuple[int, int] | np.ndarray[int, int],
+                               modification_type: str) -> None:
+        """
+        method to log the world's state by defining the position of the changes to be made soon
+        :param position: left up corner of the area in the world to be stored
+        :param size: tuple of s and y size of the area in the world to be stored
+        :param modification_type: modification type konstant indicating if the worlds colour_layer (COLOUR_MODIFICATION)
+                                  or the worlds leaf or object_layer (OBJECT_MODIFICATION) is going to be modified
+        """
+        self.undo_modification_groups[-1].append_point(
+            self._create_modification_point(position,
+                                            size,
+                                            modification_type)
+        )
+
+    def add_modification_group(self, reproducible: bool = True) -> None:
+        """
+        method to add a modification group, modification groups are used to bundle multiple modification points together
+        :param reproducible: if True once the created ModificationGroup is undone it can be redone else not
+        """
+        self.undo_modification_groups.append(ModificationGroup(reproducible))
+
+        self.redo_modification_groups = []
+        self.redo_modification_groups = self.redo_modification_groups[:-1 - self.undo_depth]
+        self.undo_depth = 0
+
+    def _create_redo_modification_group(self, modification_group: ModificationGroup) -> ModificationGroup:
+        """
+        creates a ModificationGroup based on the changes that are going to be made by another ModificationGroup soon
+        :param modification_group: ModificationGroup to be inverted
+        :return: ModificationGroup that can be used to undo the changes made by the specified ModificationGroup
+        """
+        undo_modification_group = ModificationGroup()
+
+        for modification_point in modification_group.modification_points:
+
+            undo_modification_group.modification_points.append(
+                self._create_modification_point(
+                    modification_point.position,
+                    modification_point.size,
+                    self.COLOUR_MODIFICATION if isinstance(modification_point, ColourModificationPoint)
+                    else self.OBJECT_MODIFICATION
+                                                )
+            )
+
+        return undo_modification_group
+
+    def _apply_modification_group(self, modification_group: ModificationGroup) -> None:
+        """
+        restore the worlds status stored in the specified ModificationGroup
+        :param modification_group: ModificationGroup to restore from
+        """
+        for modification_point in modification_group.modification_points:
+            if isinstance(modification_point, ColourModificationPoint):
+
+                self.colour_layer[modification_point.position[0]:
+                                  modification_point.position[0] + modification_point.size[0],
+                                  modification_point.position[1]:
+                                  modification_point.position[1] + modification_point.size[1]] = (
+                    modification_point.colour_matrix)
+
+            elif isinstance(modification_point, ObjectModificationPoint):
+
+                self.leaf_layer[modification_point.position[0]:
+                                modification_point.position[0] + modification_point.size[0],
+                                modification_point.position[1]:
+                                modification_point.position[1] + modification_point.size[1]] = (
+                    modification_point.leaf_matrix)
+
+                self.object_layer[modification_point.position[0]:
+                                  modification_point.position[0] + modification_point.size[0],
+                                  modification_point.position[1]:
+                                  modification_point.position[1] + modification_point.size[1]] = (
+                    modification_point.object_matrix)
+
+            else:
+                raise ValueError(f"modification point: '{modification_point}' in "
+                                 f"modification group: '{modification_group}' is invalid")
+
+    def undo(self) -> None:
+        """
+        method to undo the latest not yet undone ModificationGroup
+        """
+        if self.undo_depth + 1 > len(self.undo_modification_groups):
+            return None
+
+        targeted_modification_group = self.undo_modification_groups[-1 - self.undo_depth]
+
+        if targeted_modification_group.reproducible:
+            self.redo_modification_groups.append(
+                self._create_redo_modification_group(targeted_modification_group)
+            )
+
+            self.undo_depth += 1
+
+        else:
+            self.undo_modification_groups.pop()
+
+        self._apply_modification_group(targeted_modification_group)
+
+    def redo(self) -> None:
+        """
+        method to redo the latest not yet redone undone ModificationGroup (note that ModificationGroups that are
+        specified to not be redoable are skipped)
+        """
+        if self.undo_depth == 0:
+            return None
+
+        targeted_modification_group = self.redo_modification_groups.pop(0)
+
+        self._apply_modification_group(targeted_modification_group)
 
 
 @dataclass
